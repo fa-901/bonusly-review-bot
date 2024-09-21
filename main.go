@@ -43,24 +43,19 @@ func getAuthenticatedUsername(ctx context.Context) (string, error) {
 }
 
 func getAllMyOpenPullRequests(ctx context.Context) {
-	// Get the authenticated username
 	username, err := getAuthenticatedUsername(ctx)
 	if err != nil {
 		log.Fatalf("Failed to retrieve authenticated user's username: %v", err)
 	}
 
-	fmt.Printf("User name: %s\n", username)
-
 	// Search for open pull requests authored by the authenticated user
 	query := fmt.Sprintf("is:pr is:open author:%s", username)
-	searchOpts := &github.SearchOptions{
-		ListOptions: github.ListOptions{PerPage: 10}, // Pagination: fetch 10 results per page
+	opts := &github.SearchOptions{
+		ListOptions: github.ListOptions{PerPage: 50},
 	}
 
-	fmt.Printf("Search query: %s\n", query)
-
 	// Perform the search
-	result, _, err := client.Search.Issues(ctx, query, searchOpts)
+	result, _, err := client.Search.Issues(ctx, query, opts)
 	if err != nil {
 		log.Fatalf("Error searching for pull requests: %v", err)
 	}
