@@ -7,13 +7,27 @@ import (
 	"golang.org/x/oauth2"
 	"log"
 	"os"
+	"strings"
 )
 
 func Hello(name string) string {
 	return "Hello " + name
 }
 
+type Reviewer struct {
+	Name  string
+	Email string
+}
+
+type Reward struct {
+	users     []string
+	hash      string
+	processed bool
+}
+
 var client *github.Client
+var reviewer []Reviewer
+var rewards []Reward
 
 // Initializes the GitHub client
 func initGitHubClient() {
@@ -38,11 +52,10 @@ func getAuthenticatedUsername(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("error fetching authenticated user: %v", err)
 	}
-	fmt.Printf("Authenticated user perms: %s\n", user.Permissions)
 	return user.GetLogin(), nil
 }
 
-func getAllMyOpenPullRequests(ctx context.Context) {
+func getOpenPRs(ctx context.Context) {
 	username, err := getAuthenticatedUsername(ctx)
 	if err != nil {
 		log.Fatalf("Failed to retrieve authenticated user's username: %v", err)
@@ -61,17 +74,47 @@ func getAllMyOpenPullRequests(ctx context.Context) {
 	}
 
 	// Print the results
-	fmt.Printf("Found %d open pull requests\n", result.GetTotal())
+	log.Printf("Found %d open pull requests\n", result.GetTotal())
 	for _, issue := range result.Issues {
+		repoUrl := issue.GetRepositoryURL()
+		repo := strings.Split(repoUrl, "/")
+		repoNumber := issue.GetNumber()
+		repoOwner := repo[len(repo)-2]
+		repoName := repo[len(repo)-1]
+
+		reviews := getAllReviews(ctx, repoOwner, repoName, repoNumber)
+		if reviews == nil {
+			return
+		}
+
+		// TODO: remove prints
 		fmt.Printf("PR Title: %s\n", issue.GetTitle())
-		fmt.Printf("PR URL: %s\n", issue.GetHTMLURL())
-		fmt.Printf("Repo: %s\n", issue.GetRepositoryURL())
+		fmt.Printf("Repo: %s\n", issue.GetHTMLURL())
+		fmt.Printf("Repo: %v\n", issue.GetNumber())
+		fmt.Printf("Owner: %s\n", repoOwner)
+		fmt.Printf("Name: %s\n", repoName)
+		for _, review := range reviews {
+			user := review.GetUser().GetLogin()
+			email := review.GetUser().GetEmail()
+			fmt.Printf("reviewer: %s\n", user)
+			fmt.Printf("email: %s\n", email)
+		}
 		fmt.Println("------")
 	}
+}
+
+func getAllReviews(ctx context.Context, owner string, repo string, id int) []*github.PullRequestReview {
+	opts := &github.ListOptions{PerPage: 50}
+
+	reviews, _, err := client.PullRequests.ListReviews(ctx, owner, repo, id, opts)
+	if err != nil {
+		log.Fatalln("Error getting PR reviewers:", err)
+	}
+	return reviews
 }
 
 func main() {
 	initGitHubClient()
 	ctx := context.Background()
-	getAllMyOpenPullRequests(ctx)
+	getOpenPRs(ctx)
 }
