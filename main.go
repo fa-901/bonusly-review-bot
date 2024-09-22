@@ -122,18 +122,18 @@ func getOpenPRs() {
 		prHash := fmt.Sprintf("%v", hash(hashInput))
 
 		for _, review := range reviews {
-			user := review.GetUser().GetLogin()
-			// do not include self in the reviewers list
-			if user == username {
+			id := review.GetUser().GetID()
+			user, _, _ := client.Users.GetByID(ctx, id)
+			_username := user.GetLogin()
+			if _username == username { /// exclude self in the reviewers list
 				continue
 			}
-			name := review.GetUser().GetName()
-			email := review.GetUser().GetEmail()
+			name := user.GetName()
+			email := user.GetEmail()
 			reviewers = append(reviewers, Reviewer{
-				Username: user,
+				Username: _username,
 				Name:     name,
-				//Email:    "farhan.alam@optimizely.com",
-				Email: email,
+				Email:    email,
 			})
 		}
 		rewards = append(rewards, Reward{
@@ -179,14 +179,19 @@ func processRewardList() {
 	usernames := make([]string, 0)
 	for _, reviewer := range reviewers {
 		if reviewer.Email == "" {
-			// use Bonusly autocomplete as a last resort
-			//name, err = getBonuslyAutocomplete(reviewer.Name)
+			// use Bonusly autocomplete as a last resort to get a username without email
+			username := getBonuslySuggestedName(reviewer.Name)
+			if username != "" {
+				usernames = append(usernames, username)
+			}
+		} else {
+			username, err := getBonuslyUsernames(reviewer.Email)
+			if err != nil {
+				log.Printf("Error: %v", err)
+			}
+			usernames = append(usernames, username)
 		}
-		username, err := getBonuslyUsernames(reviewer.Email)
-		if err != nil {
-			log.Printf("Error: %v", err)
-		}
-		usernames = append(usernames, username)
+
 	}
 
 	message := generateBonuslyMessage(usernames)
@@ -203,7 +208,7 @@ func generateBonuslyMessage(usernames []string) string {
 	}
 	userStr := strings.Join(usernames, " ")
 
-	message := fmt.Sprintf("%s Thanks for reviewing my code +%d #%s", userStr, points, tag)
+	message := fmt.Sprintf("%s Thanks for your awesome review! Your feedback was super helpful. +%d #%s", userStr, points, tag)
 
 	return message
 }
@@ -262,9 +267,31 @@ func sendBonuslyPoints(message string) {
 	}
 }
 
-//func getBonuslySuggestedName(name string) string {
-//
-//}
+func getBonuslySuggestedName(name string) string {
+	token := getBonuslyToken()
+	encodedName := url.QueryEscape(name)
+
+	requestUrl := fmt.Sprintf("https://bonus.ly/api/v1/users/autocomplete?search=%v", encodedName)
+
+	req, _ := http.NewRequest("GET", requestUrl, nil)
+
+	req.Header.Add("accept", "application/json")
+	req.Header.Add("authorization", "Bearer "+token)
+
+	res, _ := http.DefaultClient.Do(req)
+
+	defer func(Body io.ReadCloser) {
+		_ = Body.Close()
+	}(res.Body)
+	body, _ := io.ReadAll(res.Body)
+
+	username := gjson.Get(string(body), "result.0.username")
+	if username.Exists() {
+		return username.String()
+	} else {
+		return ""
+	}
+}
 
 // brute force email search with go-git
 func forceGetEmail(reviewers []Reviewer) {
