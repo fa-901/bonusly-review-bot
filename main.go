@@ -173,12 +173,13 @@ func processRewardList() {
 			log.Printf("Error: %v", err)
 		}
 		usernames = append(usernames, username)
-		fmt.Printf("username %v\n", username)
+		log.Printf("username %v\n", username)
 	}
 	message := generateBonuslyMessage(usernames)
-	fmt.Printf("message %v\n", message)
+	log.Printf("Generated message: %v\n", message)
 }
 
+/* Bonusly functions here */
 func generateBonuslyMessage(usernames []string) string {
 	tag := "focus-on-continuous-improvement"
 	points := 5
@@ -220,7 +221,29 @@ func getBonuslyUsernames(email string) (string, error) {
 }
 
 func sendBonuslyPoints(message string) {
+	token := os.Getenv("BONUSLY_ACCESS_TOKEN")
+	requestUrl := "https://bonus.ly/api/v1/bonuses"
 
+	payload := strings.NewReader(fmt.Sprintf("{\"reason\":\"%v\"}", message))
+
+	req, _ := http.NewRequest("POST", requestUrl, payload)
+
+	req.Header.Add("accept", "application/json")
+	req.Header.Add("content-type", "application/json")
+	req.Header.Add("authorization", "Bearer "+token)
+
+	res, _ := http.DefaultClient.Do(req)
+
+	defer func(Body io.ReadCloser) {
+		_ = Body.Close()
+	}(res.Body)
+	body, _ := io.ReadAll(res.Body)
+
+	if res.StatusCode >= 200 && res.StatusCode < 300 {
+		log.Println("Sent message:", res.Status)
+	} else {
+		fmt.Printf("Request failed with status: %s\nBody: %s\n", res.Status, body)
+	}
 }
 
 func main() {
