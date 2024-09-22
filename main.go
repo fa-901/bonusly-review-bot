@@ -6,7 +6,10 @@ import (
 	"github.com/google/go-github/v65/github"
 	"golang.org/x/oauth2"
 	"hash/fnv"
+	"io"
 	"log"
+	"net/http"
+	"net/url"
 	"os"
 	"strings"
 )
@@ -100,10 +103,11 @@ func getOpenPRs(ctx context.Context) {
 
 		for _, review := range reviews {
 			name := review.GetUser().GetName()
-			email := review.GetUser().GetEmail()
+			//email := review.GetUser().GetEmail()
 			reviewers = append(reviewers, Reviewer{
 				Name:  name,
-				Email: email,
+				Email: "farhan.alam@optimizely.com",
+				//Email: email,
 			})
 		}
 		rewards = append(rewards, Reward{
@@ -129,16 +133,50 @@ func getAllReviews(ctx context.Context, owner string, repo string, id int) []*gi
 	return reviews
 }
 
-func processReviewers() {
+func processRewardList() {
+	reviewers := make([]Reviewer, 0)
 	for _, value := range rewards {
+		reviewers = append(reviewers, value.users...)
 		println(value.processed, value.hash, len(value.users))
 	}
+	println("Total", len(reviewers))
+	// Force get emails here
 
+	for _, reviewer := range reviewers {
+		if reviewer.Email == "" {
+			// use Bonusly autocomplete as a last resort
+		}
+		username, err := getBonuslyUsernames(reviewer.Email)
+		println(username, err)
+		//bonuslyUsername:
+
+	}
+}
+
+func getBonuslyUsernames(email string) (string, error) {
+	token := os.Getenv("BONUSLY_ACCESS_TOKEN")
+	encodedEmail := url.QueryEscape(email)
+	println("encoded email:", encodedEmail)
+	requestUrl := fmt.Sprintf("https://bonus.ly/api/v1/users?limit=1&email=%v&include_archived=false", encodedEmail)
+	req, _ := http.NewRequest("GET", requestUrl, nil)
+
+	req.Header.Add("accept", "application/json")
+	req.Header.Add("authorization", "Bearer "+token)
+
+	res, _ := http.DefaultClient.Do(req)
+
+	defer func(Body io.ReadCloser) {
+		_ = Body.Close()
+	}(res.Body)
+	body, _ := io.ReadAll(res.Body)
+
+	fmt.Println(string(body))
+	return email, nil
 }
 
 func main() {
 	initGitHubClient()
 	ctx := context.Background()
 	getOpenPRs(ctx)
-	processReviewers()
+	processRewardList()
 }
