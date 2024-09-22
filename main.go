@@ -3,6 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
+	gitHttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/google/go-github/v65/github"
 	"github.com/tidwall/gjson"
 	"golang.org/x/oauth2"
@@ -12,6 +16,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -139,17 +144,6 @@ func getOpenPRs() {
 	}
 }
 
-// TODO: force get email
-func forceGetEmail(reviewers []Reviewer) string {
-	for _, reviewer := range reviewers {
-		if reviewer.Email != "" {
-
-		}
-		println(reviewer.Email)
-	}
-	return "faa@faa.com"
-}
-
 func getAllReviews(owner string, repo string, id int) []*github.PullRequestReview {
 	opts := &github.ListOptions{PerPage: 50}
 
@@ -179,7 +173,8 @@ func processRewardList() {
 	}
 	reviewers = removeDuplicateUsers(reviewers)
 	log.Printf("Found %v unique reviewers\n", len(reviewers))
-	forceGetEmail(reviewers)
+	// TODO: force get email from repo commit data. This is still WIP
+	//forceGetEmail(reviewers)
 
 	usernames := make([]string, 0)
 	for _, reviewer := range reviewers {
@@ -270,6 +265,93 @@ func sendBonuslyPoints(message string) {
 //func getBonuslySuggestedName(name string) string {
 //
 //}
+
+// brute force email search with go-git
+func forceGetEmail(reviewers []Reviewer) {
+	for _, reviewer := range reviewers {
+		if reviewer.Email != "" {
+
+		}
+		repo := getPublicRepoByUser(reviewer.Username)
+		if repo != "" {
+			reviewer.Email = getEmailFromPublicRepo(reviewer.Username, repo)
+		}
+		println(reviewer.Email)
+	}
+}
+
+// gets just 1 public repo by username
+func getPublicRepoByUser(user string) string {
+	opts := &github.RepositoryListByUserOptions{
+		ListOptions: github.ListOptions{PerPage: 1},
+	}
+	repos, _, err := client.Repositories.ListByUser(ctx, user, opts)
+	if err != nil {
+		log.Printf("Error fetching repositories: %v", err)
+		return ""
+	}
+	if len(repos) == 0 {
+		return ""
+	}
+
+	var repository string = repos[0].GetName()
+	return repository
+}
+
+func getEmailFromPublicRepo(owner string, repository string) string {
+	token := getGhToken()
+	repoUrl := fmt.Sprintf("https://github.com/%v/%v.git", owner, repository)
+
+	tempDir := filepath.Join(".", "cloned-repos")
+
+	// Clones the repository into the given dir, just as a normal git clone does
+	_, err := git.PlainClone(tempDir, false, &git.CloneOptions{
+		URL: repoUrl,
+		Auth: &gitHttp.BasicAuth{
+			Username: "--",
+			Password: token,
+		},
+	})
+
+	// Open the cloned repository
+	repo, err := git.PlainOpen(tempDir)
+	if err != nil {
+		log.Printf("Failed to open the repository: %v\n", err)
+		return ""
+	}
+
+	// Get the reference for the HEAD
+	_, err = repo.Reference(plumbing.HEAD, true)
+	if err != nil {
+		log.Printf("Failed to get HEAD reference: %v\n", err)
+		return ""
+	}
+
+	// Get the commits in the repository
+	commitIter, err := repo.CommitObjects()
+	if err != nil {
+		log.Printf("Failed to get commit objects: %v\n", err)
+		return ""
+	}
+
+	// Iterate over the commits and find the first one
+	var firstCommit *object.Commit
+	err = commitIter.ForEach(func(c *object.Commit) error {
+		if firstCommit == nil {
+			firstCommit = c
+		}
+		return nil
+	})
+	if err != nil {
+		log.Printf("Failed to iterate over commits: %v\n", err)
+	}
+
+	// Clean up by removing the temporary directory
+	if err := os.RemoveAll(tempDir); err != nil {
+		log.Printf("Failed to remove temporary directory: %v\n", err)
+	}
+	return firstCommit.Author.Email
+}
 
 func main() {
 	initGhClient()
