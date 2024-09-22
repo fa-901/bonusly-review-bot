@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 func Hello(name string) string {
@@ -30,14 +31,14 @@ type Reviewer struct {
 	Email    string
 }
 
-type Reward struct {
+type Review struct {
 	users     []Reviewer
 	hash      string
 	processed bool
 }
 
 var client *github.Client
-var rewards []Reward
+var reviews []Review
 var ctx = context.Background()
 
 func getGhToken() string {
@@ -85,7 +86,7 @@ func getAuthenticatedUsername() (string, error) {
 	return user.GetLogin(), nil
 }
 
-func getOpenPRs() {
+func getOpenRequests() {
 	username, err := getAuthenticatedUsername()
 	if err != nil {
 		log.Fatalf("Failed to retrieve authenticated user's username: %v", err)
@@ -113,15 +114,15 @@ func getOpenPRs() {
 		repoName := repo[len(repo)-1]
 		reviewers := make([]Reviewer, 0)
 
-		reviews := getAllReviews(repoOwner, repoName, repoNumber)
-		if reviews == nil {
+		ghReviews := getAllReviews(repoOwner, repoName, repoNumber)
+		if ghReviews == nil {
 			return
 		}
 
 		hashInput := fmt.Sprintf("%v-%v-%v", repoOwner, repoName, repoNumber)
 		prHash := fmt.Sprintf("%v", hash(hashInput))
 
-		for _, review := range reviews {
+		for _, review := range ghReviews {
 			id := review.GetUser().GetID()
 			user, _, _ := client.Users.GetByID(ctx, id)
 			_username := user.GetLogin()
@@ -136,7 +137,7 @@ func getOpenPRs() {
 				Email:    email,
 			})
 		}
-		rewards = append(rewards, Reward{
+		reviews = append(reviews, Review{
 			users:     reviewers,
 			hash:      prHash,
 			processed: false,
@@ -168,7 +169,7 @@ func removeDuplicateUsers(users []Reviewer) []Reviewer {
 
 func processRewardList() {
 	reviewers := make([]Reviewer, 0)
-	for _, value := range rewards {
+	for _, value := range reviews {
 		reviewers = append(reviewers, value.users...)
 	}
 	reviewers = removeDuplicateUsers(reviewers)
@@ -196,7 +197,7 @@ func processRewardList() {
 
 	message := generateBonuslyMessage(usernames)
 	log.Printf("Generated message: %v\n", message)
-	//sendBonuslyPoints(message)
+	sendBonuslyPoints(message)
 }
 
 /* Bonusly functions here */
@@ -208,7 +209,7 @@ func generateBonuslyMessage(usernames []string) string {
 	}
 	userStr := strings.Join(usernames, " ")
 
-	message := fmt.Sprintf("%s Thanks for your awesome review! Your feedback was super helpful. +%d #%s", userStr, points, tag)
+	message := fmt.Sprintf("%s Thanks for the super helpful review and great feedback! 🙌 +%d #%s", userStr, points, tag)
 
 	return message
 }
@@ -321,7 +322,7 @@ func getPublicRepoByUser(user string) string {
 		return ""
 	}
 
-	var repository string = repos[0].GetName()
+	repository := repos[0].GetName()
 	return repository
 }
 
@@ -380,8 +381,25 @@ func getEmailFromPublicRepo(owner string, repository string) string {
 	return firstCommit.Author.Email
 }
 
+func removeClosedRequests() { // find pull requests that are closed and remove them from the reviewList
+
+}
+
 func main() {
 	initGhClient()
-	getOpenPRs()
+	ticker := time.NewTicker(15 * time.Minute)
+	defer ticker.Stop()
+
+	getOpenRequests()
 	processRewardList()
+
+	go func() {
+		for range ticker.C {
+			getOpenRequests()
+			processRewardList()
+		}
+	}()
+
+	select {}
+
 }
