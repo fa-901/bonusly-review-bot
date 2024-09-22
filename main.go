@@ -35,14 +35,26 @@ var client *github.Client
 var rewards []Reward
 var ctx = context.Background()
 
-// Initializes the GitHub client
-func initGitHubClient() {
+func getGhToken() string {
 	token := os.Getenv("GITHUB_ACCESS_TOKEN")
 	if token == "" {
 		log.Fatalf("GITHUB_ACCESS_TOKEN not set")
 	}
+	return token
+}
 
-	ctx := context.Background()
+func getBonuslyToken() string {
+	token := os.Getenv("BONUSLY_ACCESS_TOKEN")
+	if token == "" {
+		log.Fatalf("BONUSLY_ACCESS_TOKEN not set")
+	}
+	return token
+}
+
+// Initializes the GitHub client
+func initGhClient() {
+	token := getGhToken()
+
 	ts := oauth2.StaticTokenSource(
 		&oauth2.Token{AccessToken: token},
 	)
@@ -60,7 +72,7 @@ func hash(s string) uint32 {
 }
 
 // Get the authenticated user's username
-func getAuthenticatedUsername(ctx context.Context) (string, error) {
+func getAuthenticatedUsername() (string, error) {
 	user, _, err := client.Users.Get(ctx, "")
 	if err != nil {
 		return "", fmt.Errorf("error fetching authenticated user: %v", err)
@@ -68,8 +80,8 @@ func getAuthenticatedUsername(ctx context.Context) (string, error) {
 	return user.GetLogin(), nil
 }
 
-func getOpenPRs(ctx context.Context) {
-	username, err := getAuthenticatedUsername(ctx)
+func getOpenPRs() {
+	username, err := getAuthenticatedUsername()
 	if err != nil {
 		log.Fatalf("Failed to retrieve authenticated user's username: %v", err)
 	}
@@ -96,7 +108,7 @@ func getOpenPRs(ctx context.Context) {
 		repoName := repo[len(repo)-1]
 		reviewers := make([]Reviewer, 0)
 
-		reviews := getAllReviews(ctx, repoOwner, repoName, repoNumber)
+		reviews := getAllReviews(repoOwner, repoName, repoNumber)
 		if reviews == nil {
 			return
 		}
@@ -111,12 +123,12 @@ func getOpenPRs(ctx context.Context) {
 				continue
 			}
 			name := review.GetUser().GetName()
-			//email := review.GetUser().GetEmail()
+			email := review.GetUser().GetEmail()
 			reviewers = append(reviewers, Reviewer{
 				Username: user,
 				Name:     name,
-				Email:    "farhan.alam@optimizely.com",
-				//Email: email,
+				//Email:    "farhan.alam@optimizely.com",
+				Email: email,
 			})
 		}
 		rewards = append(rewards, Reward{
@@ -128,11 +140,17 @@ func getOpenPRs(ctx context.Context) {
 }
 
 // TODO: force get email
-func forceGetEmail(ctx context.Context, user string, owner string, repo string) string {
+func forceGetEmail(reviewers []Reviewer) string {
+	for _, reviewer := range reviewers {
+		if reviewer.Email != "" {
+
+		}
+		println(reviewer.Email)
+	}
 	return "faa@faa.com"
 }
 
-func getAllReviews(ctx context.Context, owner string, repo string, id int) []*github.PullRequestReview {
+func getAllReviews(owner string, repo string, id int) []*github.PullRequestReview {
 	opts := &github.ListOptions{PerPage: 50}
 
 	reviews, _, err := client.PullRequests.ListReviews(ctx, owner, repo, id, opts)
@@ -161,22 +179,24 @@ func processRewardList() {
 	}
 	reviewers = removeDuplicateUsers(reviewers)
 	log.Printf("Found %v unique reviewers\n", len(reviewers))
-	// Force get emails here
+	forceGetEmail(reviewers)
 
 	usernames := make([]string, 0)
 	for _, reviewer := range reviewers {
 		if reviewer.Email == "" {
 			// use Bonusly autocomplete as a last resort
+			//name, err = getBonuslyAutocomplete(reviewer.Name)
 		}
 		username, err := getBonuslyUsernames(reviewer.Email)
 		if err != nil {
 			log.Printf("Error: %v", err)
 		}
 		usernames = append(usernames, username)
-		log.Printf("username %v\n", username)
 	}
+
 	message := generateBonuslyMessage(usernames)
 	log.Printf("Generated message: %v\n", message)
+	//sendBonuslyPoints(message)
 }
 
 /* Bonusly functions here */
@@ -194,7 +214,8 @@ func generateBonuslyMessage(usernames []string) string {
 }
 
 func getBonuslyUsernames(email string) (string, error) {
-	token := os.Getenv("BONUSLY_ACCESS_TOKEN")
+	token := getBonuslyToken()
+
 	encodedEmail := url.QueryEscape(email)
 	requestUrl := fmt.Sprintf("https://bonus.ly/api/v1/users?limit=1&email=%v&include_archived=false", encodedEmail)
 	req, _ := http.NewRequest("GET", requestUrl, nil)
@@ -221,9 +242,9 @@ func getBonuslyUsernames(email string) (string, error) {
 }
 
 func sendBonuslyPoints(message string) {
-	token := os.Getenv("BONUSLY_ACCESS_TOKEN")
-	requestUrl := "https://bonus.ly/api/v1/bonuses"
+	token := getBonuslyToken()
 
+	requestUrl := "https://bonus.ly/api/v1/bonuses"
 	payload := strings.NewReader(fmt.Sprintf("{\"reason\":\"%v\"}", message))
 
 	req, _ := http.NewRequest("POST", requestUrl, payload)
@@ -246,8 +267,12 @@ func sendBonuslyPoints(message string) {
 	}
 }
 
+//func getBonuslySuggestedName(name string) string {
+//
+//}
+
 func main() {
-	initGitHubClient()
-	getOpenPRs(ctx)
+	initGhClient()
+	getOpenPRs()
 	processRewardList()
 }
