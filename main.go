@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/google/go-github/v65/github"
 	"golang.org/x/oauth2"
+	"hash/fnv"
 	"log"
 	"os"
 	"strings"
@@ -20,13 +21,12 @@ type Reviewer struct {
 }
 
 type Reward struct {
-	users     []string
+	users     []Reviewer
 	hash      string
 	processed bool
 }
 
 var client *github.Client
-var reviewer []Reviewer
 var rewards []Reward
 
 // Initializes the GitHub client
@@ -44,6 +44,13 @@ func initGitHubClient() {
 
 	// Initialize the global client
 	client = github.NewClient(tc)
+}
+
+// generates a hash
+func hash(s string) uint32 {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(s))
+	return h.Sum32()
 }
 
 // Get the authenticated user's username
@@ -81,26 +88,35 @@ func getOpenPRs(ctx context.Context) {
 		repoNumber := issue.GetNumber()
 		repoOwner := repo[len(repo)-2]
 		repoName := repo[len(repo)-1]
+		reviewers := make([]Reviewer, 0)
 
 		reviews := getAllReviews(ctx, repoOwner, repoName, repoNumber)
 		if reviews == nil {
 			return
 		}
 
-		// TODO: remove prints
-		fmt.Printf("PR Title: %s\n", issue.GetTitle())
-		fmt.Printf("Repo: %s\n", issue.GetHTMLURL())
-		fmt.Printf("Repo: %v\n", issue.GetNumber())
-		fmt.Printf("Owner: %s\n", repoOwner)
-		fmt.Printf("Name: %s\n", repoName)
+		hashInput := fmt.Sprintf("%v-%v-%v", repoOwner, repoName, repoNumber)
+		prHash := fmt.Sprintf("%v", hash(hashInput))
+
 		for _, review := range reviews {
-			user := review.GetUser().GetLogin()
+			name := review.GetUser().GetName()
 			email := review.GetUser().GetEmail()
-			fmt.Printf("reviewer: %s\n", user)
-			fmt.Printf("email: %s\n", email)
+			reviewers = append(reviewers, Reviewer{
+				Name:  name,
+				Email: email,
+			})
 		}
-		fmt.Println("------")
+		rewards = append(rewards, Reward{
+			users:     reviewers,
+			hash:      prHash,
+			processed: false,
+		})
 	}
+}
+
+// TODO: force get email
+func forceGetEmail(ctx context.Context, user string, owner string, repo string) string {
+	return "faa@faa.com"
 }
 
 func getAllReviews(ctx context.Context, owner string, repo string, id int) []*github.PullRequestReview {
@@ -113,8 +129,16 @@ func getAllReviews(ctx context.Context, owner string, repo string, id int) []*gi
 	return reviews
 }
 
+func processReviewers() {
+	for _, value := range rewards {
+		println(value.processed, value.hash, len(value.users))
+	}
+
+}
+
 func main() {
 	initGitHubClient()
 	ctx := context.Background()
 	getOpenPRs(ctx)
+	processReviewers()
 }
