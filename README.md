@@ -2,7 +2,7 @@
 Simple bot that automatically rewards your colleagues Bonusly points for reviewing your pull requests.
 
 ### How does it work?
-The bot scans your open pull requests, identifies recent reviewers, and automatically sends them Bonusly points on your behalf.
+Every 15 minutes, the bot scans your open pull requests, identifies recent reviewers, locates their Bonusly profiles, and automatically sends them Bonusly points on your behalf in a single post.
 
 ## Setup
 - You will need to generate 2 Access tokens and set them in your environment variables.
